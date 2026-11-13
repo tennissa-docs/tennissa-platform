@@ -1,0 +1,115 @@
+feature,area,priority,original,clone,notes
+Magic-link email sign-in for every role (one use; 24h expiry),auth,must,yes,no,f07 f08
+Roles and portals: fund admin; school admin; donor; parent,auth,must,yes,no,
+Public giving page for the fund,money,must,yes,no,S05
+Give modal: filing status then amount then details,money,must,yes,no,S06
+Married couple: two gifts and two receipts in one checkout,money,must,yes,no,f48 f49
+$1700 per person per year cap,money,must,yes,no,
+Give now: one-time gift charged at checkout (no pledges; no monthly),money,must,yes,no,S06; decided 2026-11-12
+Designation: greatest need or a partner school,money,must,yes,no,S06
+Bank (ACH) and card payment,money,must,yes,no,via your own processor
+Tax-credit attestations recorded with each gift (US person; own money; count toward credit),money,must,yes,no,S06; locked once set
+Thank-you page with confirmation number once the gift clears,money,must,yes,no,S07
+Collect pledges on their date (scheduled job),money,must,yes,skip,no pledges: donors pay when they give (decided 2026-11-12)
+Receipt email when the gift clears,money,must,yes,no,S09
+Donations list with filters and CSV export,money,must,yes,no,S01
+Record offline donation (check or wire),money,must,yes,no,S02
+One segregated §25F account per state plus a general account,money,must,yes,no,S11
+Fee calculation shown and recorded per gift (3% bank / 5% card),money,must,yes,no,S11
+Application rounds: open and close,students,must,yes,no,S17
+Six-step public application,students,must,yes,no,S19; steps 2-3 and 6 not seen
+Qualify by income documents; benefit letter or foster child,students,must,yes,no,S19 step 4
+Document upload up to 10 MB with other-income certification,students,must,yes,no,S19 step 5
+County AMGI table and 300% limit by household size,students,must,yes,no,HUD 2026 data
+Income check result with % of limit,students,must,yes,no,S21 S22
+Family portal: every application,students,must,yes,no,S20
+Invite a school with partner agreement,students,must,yes,no,S12
+School signs agreement by typed name (with record of who and when),students,must,yes,no,S13
+School portal: verify enrollment or decline,students,must,yes,no,S14 F09
+School portal: Scholarship students page (award; paid; still to come; last term confirmed; status),students,must,partly,no,school_scholarship_students
+Per-term enrollment confirmation by the school before each term payment,students,must,no,no,DB-enforced; on-behalf allowed
+School reports withdrew / transferred / graduated: stops payments; admin follow-up; flags payments for return,students,must,partly (mid-year transfer),no,DB-enforced
+Owner/admin records a school confirmation on its behalf (method; school contact; note; evidence),students,must,no,no,decided 2026-11-12; permanent; DB-enforced
+Reminder emails to schools with applications waiting; escalate to admins after 10 days,students,must,no,no,day 3 then every 3 days; max 4
+Applications list with status tabs and counts,students,must,yes,no,S21
+Priority order: renewals then siblings then oldest,students,must,yes,no,S21
+Application detail: income check; school verification; approve or deny with amount,students,must,yes,no,S22
+Awards list: awaiting payment and left to pay,students,must,yes,no,S25
+Students list across schools,students,must,yes,no,S24
+Payees with bank details encrypted and owner approval on change,students,must,yes,no,S26
+Payment batches: build; approve; mark sent; settled,students,must,yes,no,S27
+NACHA ACH file download,students,must,yes,no,S27
+Proof of delivery before payment: schools need enrollment + term tuition statement; vendors need invoice + delivery proof,students,must,partly (school verification; optional invoice),no,decided 2026-11-13; DB-enforced
+Awaiting proof tab showing what is missing per bill or school line,students,must,no,no,
+Family one-click delivery confirmation (optional setting) with dispute resolution,students,should,no,no,answers kept as given
+Same-day ACH option on a batch (if the bank offers it),students,should,unknown,no,
+Remittance advice email per payment with a line per student,students,must,yes,no,S28
+Double-entry append-only ledger with corrections as reversing entries,books,must,yes,no,S32
+Chart of accounts with computed balances and trial balance,books,must,yes,no,S32
+Overview: received; awarded; owed to schools,books,must,yes,no,S31; no pledged tile
+Overview books panel: live balance of every ledger account,books,must,yes,no,S31; account_balances
+Overview attention banner: payout deadline; returned money spend-by; open refund reviews; disqualified matches; bank details awaiting approval,books,must,partly (district spend-by),no,S31
+Overview setup checklist then next-step prompts,books,should,partly (demo tour + next steps),no,S31; replaces the demo tour
+Sequential confirmation number per gift per year,books,must,yes,no,S35
+Refunds as separate linked transactions (refund; ACH return; lost dispute; partial allowed),books,must,partly,no,donation_refunds; original gift never changed
+Refund receipt with its own number (RF-YYYY-NNNN) kept permanently,money,must,unknown,no,
+Tax-compliance review flag on every §25F refund; cross-year priority,books,must,unknown,no,review closed only with reviewer + note
+Annual Donation Report; Annual Refund Report; Lifetime Transaction Ledger,books,must,partly,no,three views (decided 2026-11-12)
+February 28 IRS donor report export + record of submission (portal confirmation no.),books,must,not explicit,no,gap 1; file layout placeholder until the IRS publishes it
+Annual certification data pack per state; owner certifies; permanent,books,must,not explicit,no,gap 7
+Returned payments from schools/vendors: income in the year back; spend by Dec 31 next year; back on the award,books,must,yes,no,payment_returns; returns.csv
+State annual report export (contributions received; scholarships granted),books,must,yes,no,checklist: file the annual report; state forms by hand until published
+Compliance page: §25F account card; 90% test panel with breakdown; per-state table,books,must,yes,no,S35
+Vendor payments summary by expense type,books,should,yes,no,S35
+SGO checklist with live status per item,books,should,yes (static),no,S35; clone adds live ✓/⚠
+Permanent financial records: receipts; payments; books; supporting documents never deleted,books,must,unknown,no,decided 2026-11-12; DB triggers + compliance-mode file locks
+Five-year retention for applicant documents,books,must,partly,no,decided 2026-11-12; then retention-sweep deletes files
+Monthly gifts,money,should,yes,skip,one-time gifts only (decided 2026-11-12)
+Card fee add-on (donor covers the fee),money,should,yes,no,S06
+School-branded giving page with designation preset,money,should,yes,no,S05 F02
+Card statement short name per fund and school,money,should,yes,no,S11
+"Donor portal: gifts; receipts and refund receipts (download any time, any year)",money,must,yes,no,S08; decided 2026-11-12
+January 31 year-end donor statements (snapshot; corrected statements supersede; in donor portal),money,must,yes,no,gap 1; decided 2026-11-13
+"Donor list and donor page: details; every gift; receipts; refunds; statements; running total for the year incl. $1,700 limit left",money,must,yes,no,S04; decided 2026-11-13; donor_annual_totals
+Eligibility pre-check (likely eligible),students,should,yes,no,S18
+Disqualified persons list and name-match flag blocking awards,students,must,yes,no,SGO checklist item; S22 S23
+Batch award: each student gets X or split a total evenly with preview,students,should,yes,no,S21 f98
+Reversal-window warning before awarding,students,should,yes,no,S21 S25
+School portal: overview tiles and roster with import,students,must,yes,no,S14; decided 2026-11-13
+W-9 capture and how it was checked,students,should,yes,no,S26
+Two-person approval rule on batches,students,should,yes,no,S27
+Partial payments (left to pay),students,should,yes,no,S25
+Pay a vendor from an award with invoice and not-related attestation,students,must,yes,no,S29; payable only with invoice + proof of delivery
+1099s by year with CSV export,students,should,yes,no,S30
+Ledger journal view,books,should,yes,no,S33 not seen
+Reconciliation of processor events against journal,books,should,yes,no,S34
+Audit package download for any year (donations; refunds; awards; payouts; vendors; vendor payments; journal; postings; trial balance with 90% summary; annual reports; receipt PDFs),books,must,yes,no,S35; built alongside the books (decided 2026-11-12)
+Auditor role: read-only; time-limited (≤1 year); owner-granted; documents off by default; masked TIN/bank; every view logged,books,must,unknown,no,decided 2026-11-12; DB checks on grant and expiry
+Committee member role: review applications incl. documents; recommend; owner/admin decides,students,must,no (fund staff decide),no,decided 2026-11-12
+Committee members auto-added to disqualified-persons list,students,must,no,no,§25F: anyone who helps pick recipients
+Recusals with reason; DB refuses recommendations on conflicts (school staff; family match),students,must,no,no,
+Minimum committee recommendations before an award (setting),students,should,no,no,default 0
+Committee review queue,students,must,no,no,/review
+Committee email notifications: daily digest (default); each application; or off,students,must,no,no,only on days with something new
+Donors by state,books,should,yes,no,Compliance page: where donors are
+Overview charts: received by month; received vs awarded vs paid out,books,should,yes,no,S31
+90% test per state and overall: receipts incl. returned money; scholarships awarded paid or not; operating,books,must,yes,no,ninety_ten_status; matches SGO HQ Compliance page
+Bank statement match on batches (bank feed or upload),books,should,yes,no,S27
+Districts with campuses and own giving page,students,could,yes,skip,not needed: one SGO with no districts (decided 2026-11-12)
+District read-only login,students,could,yes,skip,not needed: one SGO with no districts (decided 2026-11-12)
+Payout progress by receipt year: 90% paid out by Dec 31 of the next year (oldest year first),books,must,yes,no,gap 7; receipt_year_payout
+Move unspent district money with reason,students,could,yes,skip,not needed: one SGO with no districts (decided 2026-11-12)
+Payroll giving signup and CSV import,money,could,yes,skip,not needed: one SGO with no districts (decided 2026-11-12)
+Multi-state: which state is it for,money,could,yes,no,S06
+Automated document reader (OCR) with consent,students,could,yes,no,S19; manual review first
+Delete applicant documents automatically after 5 years,students,could,yes,no,retention-sweep job; original deletes at decision
+Change the priority order,students,could,yes,no,"S21 ""Change it"""
+Paid person check by vendor review team,students,could,yes,skip,their service; not software
+Explainer video and eftccredit.com content,money,could,yes,skip,their content
+Setup onboarding (bylaws; agreement; state registration),setup,could,yes,skip,outside the three areas
+Branding and custom domains,setup,could,yes,skip,outside the three areas; revisit
+Journeys and campaigns,grow,could,yes,skip,outside the three areas
+Inbox with AI drafting,grow,could,yes,skip,outside the three areas
+Holding funds (Stripe Connect accounts in the fund's name),money,could,yes,skip,processor relationship you set up yourself
+Fund's bank sending the ACH file,students,could,yes,skip,the fund's own bank does this
+SGO HQ brand; copy and sample data,brand,could,yes,skip,theirs
