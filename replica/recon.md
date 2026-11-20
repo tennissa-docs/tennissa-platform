@@ -10,6 +10,8 @@ Date: 2026-11-12 (revised with the user's screenshots)
 
 **Records retention (decided 2026-11-12):** receipts, payment records, the books and all supporting financial documents are kept **permanently** and never deleted. Applicant documents are kept five years. See architecture.md.
 
+**Security (decided 2026-11-19):** matched SGO HQ's security page (https://sgohq.com/security) and added per-file document encryption, MFA for staff, owner-approved bank changes; see architecture.md › Security and policies/.
+
 **Scholarship committee (decided 2026-11-12, not in the original):** committee members review applications including documents and recommend; an owner or admin decides. They are disqualified persons and must recuse on conflicts. See architecture.md.
 
 **Refunds (decided 2026-11-12):** a refund is a separate, permanent transaction linked to the original gift, with its own refund receipt and a tax-compliance review flag; reported in an Annual Donation Report, an Annual Refund Report and a Lifetime Transaction Ledger. See architecture.md.
@@ -277,7 +279,7 @@ Seen account keys (f74): `cash:segregated:MN`, `cash:operating`, `clearing:disbu
 
 ## Feature matrix
 
-See `features.csv`. Must: 74, should: 21, could: 4, skip: 15 (district/payroll, pledge collection and monthly gifts moved to skip; permanent financial records and five-year applicant documents added as musts, auditor login as a should; refunds as linked transactions, the three financial views and the audit package as musts).
+See `features.csv`. Must: 85, should: 21, could: 4, skip: 15 (district/payroll, pledge collection and monthly gifts moved to skip; permanent financial records and five-year applicant documents added as musts, auditor login as a should; refunds as linked transactions, the three financial views and the audit package as musts).
 
 ## Out of scope (cannot or should not be cloned)
 

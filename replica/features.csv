@@ -113,3 +113,14 @@ Inbox with AI drafting,grow,could,yes,skip,outside the three areas
 Holding funds (Stripe Connect accounts in the fund's name),money,could,yes,skip,processor relationship you set up yourself
 Fund's bank sending the ACH file,students,could,yes,skip,the fund's own bank does this
 SGO HQ brand; copy and sample data,brand,could,yes,skip,theirs
+Session timeout after 30 minutes of inactivity (configurable 5–60),auth,must,yes (SGO HQ security page),no,decided 2026-11-19
+Sign-in log: every link; sign-in; sign-out; timeout; failure with IP (append-only),auth,must,yes (SGO HQ security page),no,decided 2026-11-19
+Limited database login for the running app (no delete; no structure changes; cannot disable protections),security,must,yes (SGO HQ security page),no,decided 2026-11-19
+Per-file encryption of applicant documents and W-9 files (own key; KMS-wrapped),security,must,no (theirs: provider encryption only),no,decided 2026-11-19
+Release gate in CI: database tests; integrity check; security headers; role isolation; money checks,security,must,yes (SGO HQ security page),no,decided 2026-11-19
+OWASP ZAP scans after every deploy and weekly (signed in and out),security,must,yes (SGO HQ security page),no,decided 2026-11-19
+Web application firewall and bot protection at the edge,security,must,yes (SGO HQ security page),no,decided 2026-11-19
+Automatic dependency security alerts,security,must,yes (SGO HQ security page),no,decided 2026-11-19
+Quarterly restore drill on separate infrastructure with integrity check; recorded permanently,security,must,yes (SGO HQ security page),no,decided 2026-11-19
+Written policies: security overview; incident response (24h notice); disaster recovery; retention; privacy; subprocessors; staff access,security,must,yes (SGO HQ security page),no,decided 2026-11-19
+US-only data residency,security,must,yes (SGO HQ security page),no,decided 2026-11-19

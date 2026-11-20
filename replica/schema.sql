@@ -29,6 +29,7 @@ create table orgs (
   two_person_rule boolean not null default false,
   require_family_confirmation boolean not null default false,   -- vendor services also need the parent's confirmation before payment
   timezone text not null default 'America/Chicago',
+  session_idle_minutes smallint not null default 30 check (session_idle_minutes between 5 and 60),   -- sign out after this long without activity
   retention_years smallint not null default 5 check (retention_years >= 5),   -- applicant documents only; financial records are permanent
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -457,6 +458,13 @@ create table application_documents (
   byte_size int not null check (byte_size <= 10485760),
   content_type text not null,
   extracted_income_cents bigint,
+  -- per-file envelope encryption: the file in storage is ciphertext; its own data key is
+  -- wrapped by the KMS key, so neither the storage provider nor a storage key alone can read it
+  enc_alg text not null default 'AES-256-GCM' check (enc_alg = 'AES-256-GCM'),
+  kms_key_id text not null,
+  wrapped_dek bytea not null,
+  nonce bytea not null check (octet_length(nonce) = 12),
+  plaintext_sha256 text not null check (plaintext_sha256 ~ '^[0-9a-f]{64}$'),
   uploaded_by uuid not null references users(id) on delete restrict,
   created_at timestamptz not null default now(),
   deleted_at timestamptz
@@ -686,6 +694,9 @@ create table w9s (
   signed_by text not null,
   signed_on date not null,
   file_path text,
+  file_kms_key_id text,
+  file_wrapped_dek bytea,
+  file_nonce bytea check (file_nonce is null or octet_length(file_nonce) = 12),
   checked_method text,                                -- e.g. "IRS Tax Exempt Organization Search, EIN and name match"
   checked_by uuid references users(id) on delete restrict,
   checked_at timestamptz,
@@ -694,6 +705,7 @@ create table w9s (
   superseded_at timestamptz
 );
 create index on w9s (payee_id);
+alter table w9s add constraint w9_file_encrypted check (file_path is null or (file_kms_key_id is not null and file_wrapped_dek is not null and file_nonce is not null));
 
 create table payee_bank_accounts (
   id uuid primary key default gen_random_uuid(),
@@ -1561,6 +1573,49 @@ end $$;
 -- removing a draft batch line is done by cancelling the batch (status = cancelled), not deleting
 
 
+-- ---------------------------------------------------------------- sign-in log and restore drills
+-- Every sign-in attempt, sign-in, sign-out and inactivity timeout, with IP. Append-only, permanent.
+create table sign_in_events (
+  id bigserial primary key,
+  org_id uuid references orgs(id) on delete restrict,
+  user_id uuid references users(id) on delete restrict,       -- null when the email is unknown
+  email citext not null,
+  event text not null check (event in ('link_requested','signed_in','signed_out','timed_out',
+                                       'link_expired','link_reused','mfa_passed','mfa_failed','rate_limited')),
+  ip inet,
+  user_agent text,
+  at timestamptz not null default now()
+);
+create index on sign_in_events (user_id, at desc);
+create index on sign_in_events (email, at desc);
+create index on sign_in_events (at desc);
+create trigger sign_in_events_append_only before update or delete on sign_in_events
+  for each row execute function forbid_change();
+
+-- Each practice restore: the backup is rebuilt on separate infrastructure and checked record by record.
+create table restore_drills (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references orgs(id) on delete restrict,
+  backup_point timestamptz not null,                  -- the backup (point in time) that was restored
+  restored_to text not null,                          -- e.g. "separate Supabase project tennissa-restore-2027q1"
+  started_at timestamptz not null,
+  finished_at timestamptz not null,
+  checks jsonb not null,                              -- output of replica/ops/verify-integrity.sql + row counts + table checksums
+  passed boolean not null,
+  notes text,
+  performed_by uuid not null references users(id) on delete restrict,
+  recorded_at timestamptz not null default now(),
+  constraint finished_after_start check (finished_at >= started_at),
+  constraint failed_needs_notes check (passed or notes is not null)
+);
+create index on restore_drills (org_id, recorded_at desc);
+create trigger restore_drills_no_update before update or delete on restore_drills
+  for each row execute function forbid_change();
+create trigger sign_in_events_never_truncate before truncate on sign_in_events
+  for each statement execute function forbid_delete_permanent();
+create trigger restore_drills_never_truncate before truncate on restore_drills
+  for each statement execute function forbid_delete_permanent();
+
 -- ---------------------------------------------------------------- updated_at triggers
 do $$ declare t text; begin
   foreach t in array array['orgs','users','schools','processor_accounts','donors','donations',
@@ -1578,3 +1633,31 @@ end $$;
 
 create trigger awards_need_committee before insert on awards
   for each row execute function award_needs_committee();
+
+-- ---------------------------------------------------------------- the running app's database login
+-- Migrations run as the database owner. The live app connects as app_runtime, which can read,
+-- add and update records but cannot delete (except draft applications and pending invitations),
+-- truncate, change the structure, or switch off triggers and protections, because it owns nothing.
+-- Create its login separately:  create role tennissa_app login password '...' in role app_runtime;
+do $$ begin
+  if not exists (select 1 from pg_roles where rolname = 'app_runtime') then
+    create role app_runtime nologin nosuperuser nocreatedb nocreaterole noinherit nobypassrls noreplication;
+  end if;
+end $$;
+revoke all on schema public from app_runtime;
+grant usage on schema public to app_runtime;
+grant select, insert, update on all tables in schema public to app_runtime;
+grant usage, select on all sequences in schema public to app_runtime;
+grant execute on all functions in schema public to app_runtime;
+revoke delete, truncate, references, trigger on all tables in schema public from app_runtime;
+grant delete on applications, school_invitations, roster_entries to app_runtime;   -- drafts and housekeeping only; triggers still apply
+-- the app reads the books but never edits them in place
+revoke update on journal_entries, postings, audit_events, sign_in_events, restore_drills from app_runtime;
+
+-- RLS stays on for every table (deny-all for browser roles such as anon/authenticated);
+-- app_runtime gets one policy per table so the server can work through the data layer.
+do $$ declare t record; begin
+  for t in select tablename from pg_tables where schemaname = 'public' loop
+    execute format('create policy app_runtime_all on %I to app_runtime using (true) with check (true)', t.tablename);
+  end loop;
+end $$;

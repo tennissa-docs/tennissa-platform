@@ -10,7 +10,7 @@ declare -A EXPECT=(
   [01-ledger-basics]=8 [02-retention-applicant-docs]=7 [03-permanent-financial-records]=7
   [04-refunds-and-reports]=6 [05-returned-payments-and-90pct]=3 [06-auditor-role]=4 [07-committee]=6
   [08-school-verification]=5 [09-donor-tax-reporting-and-certification]=9 [10-donor-running-totals]=0
-  [11-proof-of-delivery]=10 [12-term-confirmation-and-withdrawal]=5 )
+  [11-proof-of-delivery]=10 [12-term-confirmation-and-withdrawal]=5 [13-app-login-and-sign-in-log]=8 )
 fail=0
 for f in $(ls [0-9]*.sql | sort); do
   name="${f%.sql}"

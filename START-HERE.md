@@ -57,5 +57,7 @@ Supabase (database + sign-in) · Stripe (test mode first) · Resend (email) · V
 ## Useful commands
 
 - Check the database rules: `cd replica/db-tests && ./run.sh` (needs local Postgres; uses a throwaway database)
+- Check a database's integrity (restore drills): `psql -d <db> -f replica/ops/verify-integrity.sql`
+- Before launch: turn on branch protection for `main` requiring the `ci` checks, set the `PRODUCTION_URL` variable for the security scan, and have counsel review `policies/`
 - Check colour contrast after any colour change: `python3 replica/design/contrast.py replica/design/tokens.json`
 - See the design system: open `replica/design/preview.html` in your browser

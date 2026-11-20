@@ -19,16 +19,16 @@ One SGO, no districts, **one-time gifts only, charged at checkout: no pledges, n
 | jobs | **Inngest** | event jobs (webhook processing, receipts) and nightly reconciliation, with retries and step idempotency, without running a worker |
 | files | **Supabase Storage** for logos and page images. Records go in **S3 with Object Lock in compliance mode**, in two buckets: `financial-records` (receipt PDFs, ACH files, remittance advice, W-9s, invoices, bank statements, audit packages, database archives), locked for a long renewable term with replication to a second region; `applicant-documents`, locked for 5 years | compliance-mode locks can't be lifted early by anyone, including the account owner, so files can't be deleted or overwritten by mistake or with stolen keys |
 | secrets / encryption | app-level envelope encryption (libsodium) with the data key in a KMS or Supabase Vault | TINs and bank numbers are stored encrypted with last-four in clear; the database alone can't reveal them |
-| hosting | **Vercel** (app) + Supabase (US region) | managed, cheap at zero users |
+| hosting | **Vercel** (app, US region `iad1`, with Vercel Firewall managed rules) + Supabase (US East); files in S3 us-east-2 replicated to us-west-2. **United States only** | managed, cheap at zero users; data residency stays in the US |
 | errors / logs | Sentry + Vercel logs | money bugs must be loud |
 
 Not included on purpose: no microservices, no queue server, no separate ledger service, no browser-side database access.
 
 ## Schema
 
-Tables: **51** (plus 14 views: account_balances, trial_balance, annual_donation_report, annual_refund_report, lifetime_transaction_ledger, ninety_ten, ninety_ten_status, receipt_year_payout, distribution_rule, returned_payments_to_spend, donor_annual_totals, vendor_bill_payability, school_scholarship_students, payments_after_leaving). See `replica/schema.sql`, tested on Postgres 16.
+Tables: **53** (plus 14 views: account_balances, trial_balance, annual_donation_report, annual_refund_report, lifetime_transaction_ledger, ninety_ten, ninety_ten_status, receipt_year_payout, distribution_rule, returned_payments_to_spend, donor_annual_totals, vendor_bill_payability, school_scholarship_students, payments_after_leaving). See `replica/schema.sql`, tested on Postgres 16.
 
-**Access rules:** data-layer checks. The browser never talks to the database. Every server action calls one guard (`requireRole(ctx, 'admin')`, `requireSchool(ctx, schoolId)`, `requireGuardian(ctx, householdId)`, `requireDonor(ctx, donorId)`) before its query. RLS is **on with no policies** (deny-all) for every table as a backstop. The server uses the service role.
+**Access rules:** data-layer checks. The browser never talks to the database. Every server action calls one guard (`requireRole(ctx, 'admin')`, `requireSchool(ctx, schoolId)`, `requireGuardian(ctx, householdId)`, `requireDonor(ctx, donorId)`) before its query. RLS is **on** for every table: browser roles get nothing; the server connects as **`app_runtime`**, a limited login that can read, add and update but cannot delete (except draft applications and invitations), truncate, change structure or disable triggers. Migrations run separately as the database owner; the service role key is never used by the running app.
 
 | area | tables |
 | --- | --- |
@@ -179,6 +179,30 @@ Tax-year picker at the top. Every number is computed from the journal; nothing i
 
 **Returned payments (school or vendor sends money back).** Recorded as `payment_returns`: who sent it, which payment, which award it goes back on (or the general pool), the date received, counts_in_year = that year, spend_by = Dec 31 of the next year (the database checks both). Posted as income in the year it comes back. Putting it back on the award re-counts it as scholarship spending. Permanent, like every financial record.
 
+## Security (decided 2026-11-19, matched to SGO HQ's security page and beyond)
+
+| area | what the platform does | where |
+| --- | --- | --- |
+| Data residency | United States only: Vercel US region, Supabase US East, S3 in two US regions | hosting |
+| Encryption in transit / at rest | TLS 1.2+ everywhere; AES-256 at rest by providers | providers |
+| Field encryption | TINs and bank numbers: AES-256-GCM in the app (envelope, key in KMS), last four in clear | `w9s`, `payee_bank_accounts` |
+| **Per-file document encryption** | every applicant document and W-9 file is encrypted with its own data key (AES-256-GCM) **before** upload; the data key is wrapped by the KMS key and stored with the record (`kms_key_id`, `wrapped_dek`, `nonce`, `plaintext_sha256`); uploads go through the server (10 MB cap), never straight to storage; viewing decrypts on the server, streams to the viewer and logs the opening | `application_documents`, `w9s`; schema checks every file has its key material |
+| Sign-in | one-time email link (single use, 24 h); TOTP for owner and admin; rate limits on link requests | Supabase Auth |
+| **Session timeout** | signed out after **30 minutes** without activity (`orgs.session_idle_minutes`, 5–60, DB-checked); enforced server-side on every request and by Supabase's inactivity timeout; the browser shows a warning at 28 minutes | middleware |
+| **Sign-in log** | every link requested, sign-in, sign-out, timeout, expired or reused link, MFA pass/fail and rate-limit hit, with IP and browser; append-only, permanent | `sign_in_events` |
+| Change log | every money and personal-record action through the data layer writes `audit_events` (who, what, when, IP); append-only | `audit_events` |
+| Roles | owner, admin, committee member, auditor, school admin, donor/parent; see Roles and permissions | memberships |
+| **Limited database login** | the app runs as `app_runtime` (no delete except drafts, no truncate, owns nothing, so it cannot alter tables or switch off triggers); tested: delete, truncate, disable trigger, add column, drop table, edit sign-in log, edit posting are all refused | schema end; db-test 13 |
+| Money | never sees card numbers (Stripe, PCI DSS Level 1); never holds funds; owner-approved bank changes with call-back; optional two-person batch approval; proof before payment | payments |
+| Immutable records | ledger, audit log, sign-in log and all financial records cannot be edited or deleted; files in Object Lock storage | retention |
+| **Release gate** | `.github/workflows/ci.yml`: database rule tests, integrity check, contrast, typecheck, lint, unit, `test:security` (headers on every route, every role gets 403 where it should, auditor read-only, session timeout), `test:money` (webhook replay, trial balance, refunds, proof blocks), `npm audit`. Branch protection on `main` requires it; Vercel deploys only from `main` | CI |
+| **Vulnerability scanning** | `.github/workflows/security-scan.yml`: OWASP ZAP after every production deploy and every Monday, signed out and signed in (dedicated low-privilege test account) | CI |
+| **Web application firewall** | Vercel Firewall with managed rules (OWASP core rules, bot protection), rate limits on sign-in and give endpoints; Turnstile on the give form | Vercel |
+| **Dependency alerts** | Dependabot security updates and weekly update PRs | `.github/dependabot.yml` |
+| Security headers | strict CSP (Stripe and own origin only), HSTS, X-Frame-Options DENY, Referrer-Policy, Permissions-Policy; checked by `test:security` | Next.js config |
+| **Backups and restore drills** | point-in-time recovery + nightly encrypted dumps to locked storage (monthly kept permanently); **quarterly restore drill** on separate infrastructure, running `replica/ops/verify-integrity.sql` plus row counts and checksums, recorded permanently in `restore_drills` | ops |
+| **Written policies** | `policies/`: security overview (public page), incident response (24-hour notification), disaster recovery (RPO 5 min, RTO 8 h), data retention, privacy commitments, subprocessors, staff access. Drafts for counsel | policies |
+
 ## The school portal (decided 2026-11-13)
 
 What a school's staff see and do, in their own portal (school_admin role, their school only):
@@ -282,7 +306,7 @@ Server actions unless marked `GET` (route handler) or `POST /api/…` (webhook o
 | GET /api/eligibility | pre-check: limit for county + size, likely eligible | pub | state, county, size, income | {limit, likely} | F08 |
 | GET /apply, /apply/[school] | application wizard | pub → parent after step 1 | — | page | F08 |
 | saveApplicationStep | save a step (draft) | parent | step, fields | application | F08 |
-| POST /api/uploads/sign | signed upload URL for a document (≤10 MB, types allowed) | parent | kind, size, type | upload URL | F08 |
+| POST /api/uploads/document | upload a document through the server: type and size checked, encrypted with its own key, stored as ciphertext (≤10 MB) | parent | file, kind | document id | F08 |
 | submitApplication | submit → runs income check and disqualified-name match | parent | application id | status | F08 |
 | GET /my/applications | family portal | parent | — | page | F08 |
 | GET /applications | tabs + counts, priority order, reversal banner | admin | tab, school | page | F10 |
@@ -370,6 +394,8 @@ Server actions unless marked `GET` (route handler) or `POST /api/…` (webhook o
 | irs-report-reminder | from Feb 1 | remind owners until the IRS donor report for the past year is recorded as submitted (deadline Feb 28) |
 | payout-deadline-warning | daily | warn owners when a receipt year's still-to-pay is due within 90 days |
 | family-confirmation-reminder | daily | remind a parent once after 5 days if they haven't answered; tell admins when a request expires unanswered |
+| restore-drill-reminder | quarterly (first Monday of Jan, Apr, Jul, Oct) | remind owners and the technical lead to run the restore drill; flag on the Overview if the last recorded drill is older than 100 days or failed |
+| session-cleanup | every 5 minutes | end sessions idle longer than `session_idle_minutes` and log `timed_out` |
 | expire-invitations | daily | mark school invitations past expiry |
 | school-verification-reminders | daily 08:00 | email the school's staff when applications have waited in "Needs school": first reminder after 3 days, then every 3 days, at most 4 (one email per school listing all its waiting students). After 10 days, also tell owners/admins (email + Overview banner) so someone can call the school. Spacing read from notification_log |
 | term-confirmation-reminders | daily, from 3 weeks before each term's payment date | remind schools of scholarship students not yet confirmed for the term (and missing term statements), same spacing as verification reminders |
@@ -414,7 +440,7 @@ The application's privacy note says documents are kept five years after the deci
 - **ACH is slow and can bounce:** a bank gift is `processing` for about 4 business days. Book it only on `succeeded`, and only then issue the receipt. A later return or dispute reverses it. The award screens warn while money is inside the 60/120-day window.
 - **Races:** two admins awarding at once could overspend a state pool. `decideApplication` and `batchAward` take a `pg_advisory_xact_lock` on (org, state) and re-check the available balance inside the transaction. The cap check at checkout locks the donor row the same way. Confirmation numbers come from a row-locked counter.
 - **Fees are facts, not formulas:** record Stripe's actual fee from the balance transaction. Don't compute 2.9%. The donor's "cover the fee" add-on is an estimate shown at checkout and stored separately (`fee_covered_cents`).
-- **Sensitive data:** TINs and bank numbers are encrypted in the app, with last-four in clear. Tax documents sit in a locked, private bucket and are kept 5 years (see Records retention). The audit log records every view of a full TIN, bank number or tax document. Admins need MFA, and Supabase Auth supports TOTP; require it for owner and admin.
+- **Sensitive data:** TINs and bank numbers are encrypted in the app, with last-four in clear. Tax documents are encrypted per file before upload, sit in a locked, private bucket and are kept 5 years (see Records retention and Security). The audit log records every view of a full TIN, bank number or tax document. Admins need MFA, and Supabase Auth supports TOTP; require it for owner and admin.
 - **Rate limits:** magic-link and eligibility endpoints are rate-limited by IP and email (Upstash). The give endpoint needs a bot check (Turnstile) because card testing is a real risk.
 - **File limits:** 10 MB per document. JPEG, PNG, HEIC and PDF only, checked server-side by content type and size before the signed URL is issued.
 - **Email deliverability:** send from your own domain with SPF, DKIM and DMARC set. Receipts are legal records, so log `emailed_at` and allow a resend.

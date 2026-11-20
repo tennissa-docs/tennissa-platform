@@ -11,9 +11,9 @@ insert into applications (id,org_id,round_id,student_id,household_id,school_id,g
         ('00000000-0000-0000-0000-0000000000f4','00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000e2','00000000-0000-0000-0000-0000000000f2','00000000-0000-0000-0000-0000000000f1','00000000-0000-0000-0000-0000000000c1','9',4,'income_docs','approved', now() - interval '5 years 1 day');
 update applications set round_id = round_id where false;
 \echo '(second application needs its own round: unique round+student)'
-insert into application_documents (id,application_id,kind,storage_path,byte_size,content_type,uploaded_by) values
- ('00000000-0000-0000-0000-00000000d001','00000000-0000-0000-0000-0000000000f3','w2','a/w2.png',1000,'image/png','00000000-0000-0000-0000-0000000000a1'),
- ('00000000-0000-0000-0000-00000000d002','00000000-0000-0000-0000-0000000000f4','w2','b/w2.png',1000,'image/png','00000000-0000-0000-0000-0000000000a1');
+insert into application_documents (id,application_id,kind,storage_path,byte_size,content_type,kms_key_id,wrapped_dek,nonce,plaintext_sha256,uploaded_by) values
+ ('00000000-0000-0000-0000-00000000d001','00000000-0000-0000-0000-0000000000f3','w2','a/w2.png',1000,'image/png','kms/doc-key','\x01','\x000000000000000000000000','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','00000000-0000-0000-0000-0000000000a1'),
+ ('00000000-0000-0000-0000-00000000d002','00000000-0000-0000-0000-0000000000f4','w2','b/w2.png',1000,'image/png','kms/doc-key','\x01','\x000000000000000000000000','bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','00000000-0000-0000-0000-0000000000a1');
 \echo '--- expect FAIL: delete a document decided 1 year ago'
 delete from application_documents where id='00000000-0000-0000-0000-00000000d001';
 \echo '--- expect FAIL: soft-delete it'
