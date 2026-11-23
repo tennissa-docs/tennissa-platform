@@ -42,7 +42,9 @@ One line per screen: ID, date, done or partial, what is missing, what was harder
 - **ACH verified too**: $1,700 from Stripe's test bank (Financial Connections) → `payment_intent.processing` (thank-you page shows "on its way") → `payment_intent.succeeded` and `charge.updated` arriving in the same second → R-2027-0003 booked once, fee $5.00 booked once, trial balance $0. The bank-connection window is Stripe's Link-branded Financial Connections; donors can finish without saving to Link.
 - Must-haves now yes: "Give now" and "Bank (ACH) and card payment" (11 yes, 7 partial of 86).
 
-### Not verified yet
+## Real services, part 2: Resend (2026-11-23)
 
-- Receipt email through Resend: `tennissa.org` isn't verified in Resend yet, so sending fails (the gift is booked regardless and `emailed_at` stays empty for a resend).
+- Sending domain `tennissa.org` verified in Resend (us-east-1). `EMAIL_FROM="TENNISSA <platform@tennissa.org>"`. Resend records live on `send.tennissa.org` (MX, SPF) and `resend._domainkey` (DKIM); the IONOS inbox MX/SPF on the root are untouched. DMARC is IONOS-managed (`_dmarc` CNAME to dmarc.ionos.com, `p=none`, no reports).
+- The three receipts that failed before verification (emailed_at still empty, as designed) were sent afterwards; Resend reports all three **delivered** (to Resend's test inboxes, `delivered@resend.dev`).
+- Still to do: a "resend receipt" action for staff (today a one-off script did it), the receipt PDF, and sign-in emails through Resend SMTP once Supabase Auth is wired.
 - 390px layouts were not screenshotted (the browser window wouldn't shrink below its minimum); the layouts are responsive by construction (mobile cards on S01, mobile menu, stacked tiles).

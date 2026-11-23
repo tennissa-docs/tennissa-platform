@@ -11,7 +11,7 @@ Bank (ACH) and card payment,money,must,yes,yes,via your own processor; Payment E
 Tax-credit attestations recorded with each gift (US person; own money; count toward credit),money,must,yes,yes,S06; locked once set; slice
 Thank-you page with confirmation number once the gift clears,money,must,yes,yes,S07; S07; signed link; processing/failed states
 Collect pledges on their date (scheduled job),money,must,yes,skip,no pledges: donors pay when they give (decided 2026-11-12)
-Receipt email when the gift clears,money,must,yes,partial,S09; HTML email once (emailed_at); no PDF yet; dev outbox until Resend is set up
+Receipt email when the gift clears,money,must,yes,partial,S09; HTML email once (emailed_at); sent through Resend from platform@tennissa.org (domain verified 2026-11-23); no PDF yet
 Donations list with filters and CSV export,money,must,yes,partial,S01; filters + list + pagination; CSV export not yet
 Record offline donation (check or wire),money,must,yes,no,S02
 One segregated §25F account per state plus a general account,money,must,yes,no,S11
