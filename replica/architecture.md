@@ -387,6 +387,7 @@ Server actions unless marked `GET` (route handler) or `POST /api/…` (webhook o
 | --- | --- | --- |
 | process-provider-event | on insert | apply posting rules; set donation status; issue confirmation number + receipt on `succeeded` |
 | send-receipt | on donation succeeded | render PDF, email, set `emailed_at` |
+| retry-stuck-giving-work | every 15 min | safety net: re-queue Stripe events stored but not processed (5 min to 3 days old) and receipts not emailed (15 min to 7 days old); older leftovers are for a person and the nightly reconcile |
 | reconcile | nightly 02:00 + on demand | pull Stripe balance transactions for each connected account since the last run and compare with entries cent for cent; mismatches → exceptions |
 | retention-sweep | monthly, 1st at 03:00 | delete applicant documents more than 5 years past the decision (or round close), logging each one to audit_events. It never touches financial records; the database refuses anyway. Also renews the lock on financial-records objects whose lock is within a year of ending |
 | spend-by-warning | daily | email owners when a year's 90% payout is ≤ 90 days from due |

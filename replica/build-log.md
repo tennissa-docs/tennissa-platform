@@ -25,7 +25,7 @@ One line per screen: ID, date, done or partial, what is missing, what was harder
 
 1. **Sign-in is a dev-only magic-link provider**, not Supabase Auth: signed one-use links (24h) delivered through the email layer, session cookie with a 30-minute idle limit, every event in `sign_in_events`. It refuses to run in production. Single use is tracked in memory (fine for one dev server, not for production). Swap for Supabase Auth + TOTP for owner/admin when the project exists; the calls (`requestMagicLink`, `consumeMagicLink`, `requireRole`, `guardRole`) stay.
 2. **No Drizzle query builder yet.** Queries are postgres.js tagged templates. `drizzle(sql)` replaces the client's date serializers, which breaks plain queries on the same client, so if typed Drizzle queries are added they need their own `postgres()` instance. postgres.js v4 also stopped inferring parameter types; the client uses `infer: true`.
-3. **Inngest isn't wired.** The webhook stores the event, then processes it and sends the receipt inline. Both functions are idempotent and ready to move into `process-provider-event` / `send-receipt` jobs.
+3. ~~Inngest isn't wired.~~ Done 2026-11-23, see "Real services, part 3" below.
 4. **`DEV_CLOCK`** shifts the app's clock (development only, refused with live keys) so 2027 §25F gifts can be tested now; giving opens 2027-01-01 America/Chicago (`GIVING_OPENS_AT`).
 5. **Processor accounts** are placeholders (`platform:25f:TN`, `platform:general`) that charge the platform account in test mode. Set `STRIPE_ACCOUNT_25F_TN` / `STRIPE_ACCOUNT_GENERAL` to `acct_…` and re-seed to route to Connect accounts.
 6. **Cap counting:** unconfirmed (pending) gifts count against the cap for one hour; refunded gifts still count (open question for the CPA). Existing donors are matched by email; their stored name/address isn't changed by a later gift.
@@ -48,3 +48,11 @@ One line per screen: ID, date, done or partial, what is missing, what was harder
 - The three receipts that failed before verification (emailed_at still empty, as designed) were sent afterwards; Resend reports all three **delivered** (to Resend's test inboxes, `delivered@resend.dev`).
 - Still to do: a "resend receipt" action for staff (today a one-off script did it), the receipt PDF, and sign-in emails through Resend SMTP once Supabase Auth is wired.
 - 390px layouts were not screenshotted (the browser window wouldn't shrink below its minimum); the layouts are responsive by construction (mobile cards on S01, mobile menu, stacked tiles).
+
+## Real services, part 3: Inngest jobs (2026-11-23)
+
+- `POST /api/stripe/webhook` now only verifies, stores (`provider_events`) and queues `stripe/event.stored` (event id `stripe:<evt>`, so Inngest drops a duplicate send for 24 h). It answers in ~25 ms; if queueing fails it answers 500 so Stripe retries.
+- Jobs in `lib/inngest/functions.ts`, served at `/api/inngest`: **process-provider-event** (applies the posting rules, then queues `donation/booked`), **send-receipt** (emails once; a failed send throws and Inngest retries, up to 10 times), **retry-stuck-giving-work** (every 15 min, re-queues anything stored but not processed, or booked but not emailed).
+- Verified live: Stripe test card → webhook → job booked R-2027-0004 ($100, fee $3.20) → job emailed the receipt from platform@tennissa.org, delivered. Money tests: 15 (webhook queues once and returns 500 when it can't queue; the jobs book and email once; the sweep finds a stuck event).
+- Local: `npm run dev`, `npm run inngest` (dashboard http://localhost:8288), `npm run stripe:listen`. `INNGEST_DEV=1` locally; production needs `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` and refuses to start with `INNGEST_DEV` set (dev mode turns off request signatures).
+- Choices: checkpointing is off (v4's default is on; these jobs are short and per-step requests are simpler to reason about). `@inngest/test` memoizes a step's result across runs of the same function, so the tests check "runs again, books nothing" against the database, not the run result.

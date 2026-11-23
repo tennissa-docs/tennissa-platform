@@ -1,5 +1,7 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash, randomUUID } from "node:crypto";
+import { InngestTestEngine } from "@inngest/test";
+import postgres from "postgres";
 import Stripe from "stripe";
 import { sql } from "@/lib/db";
 import { setStripeGatewayForTests, type StripeGateway } from "@/lib/stripe";
@@ -8,6 +10,11 @@ import { processProviderEvent, storeProviderEvent } from "@/lib/give/process-eve
 import { sendReceipt } from "@/lib/give/send-receipt";
 import type { GiveInput } from "@/lib/give/schema";
 import { POST as webhook } from "@/app/api/stripe/webhook/route";
+import { EVENTS, inngest } from "@/lib/inngest/client";
+import { processProviderEventJob, retryStuckJob, sendReceiptJob } from "@/lib/inngest/functions";
+
+// The database owner, for setting up test situations the app login is (rightly) not allowed to create.
+const owner = postgres(process.env.DATABASE_OWNER_URL!, { max: 1 });
 
 // A stand-in for Stripe: deterministic PaymentIntents per idempotency key, and a fixed fee as the
 // "balance transaction" would report it. The app never computes fees; the test just supplies one.
@@ -68,7 +75,7 @@ async function balance(key: string): Promise<bigint> {
 }
 
 beforeAll(() => setStripeGatewayForTests(fake));
-afterAll(async () => { setStripeGatewayForTests(null); await sql.end(); });
+afterAll(async () => { setStripeGatewayForTests(null); await sql.end(); await owner.end(); });
 beforeEach(() => { created.length = 0; });
 
 describe("one dollar, end to end", () => {
@@ -269,27 +276,107 @@ describe("giving opens after January 1, 2027", () => {
   });
 });
 
-describe("POST /api/stripe/webhook", () => {
-  it("rejects a bad signature and books a signed, replayed event once", async () => {
-    const g = await createGift(input({ email: "hook@example.com", amountCents: 300 }));
-    const ev = event("payment_intent.succeeded", await piFor(g.checkoutId), 300);
-    const payload = JSON.stringify(ev);
-    const stripe = new Stripe("sk_test_dummy");
-    const header = stripe.webhooks.generateTestHeaderString({ payload, secret: "whsec_test_secret" });
-    const send = (sig: string) => webhook(new Request("http://localhost/api/stripe/webhook", {
-      method: "POST", body: payload, headers: { "stripe-signature": sig },
-    }));
+type Queued = { name: string; id?: string; data: Record<string, unknown> };
+function signed(ev: Stripe.Event) {
+  const payload = JSON.stringify(ev);
+  const header = new Stripe("sk_test_dummy").webhooks.generateTestHeaderString({ payload, secret: "whsec_test_secret" });
+  return (sig = header) => webhook(new Request("http://localhost/api/stripe/webhook", {
+    method: "POST", body: payload, headers: { "stripe-signature": sig },
+  }));
+}
 
-    expect((await send("t=1,v1=nope")).status).toBe(400);
-    const r1 = await send(header);
-    expect(r1.status).toBe(200);
-    expect(await r1.json()).toMatchObject({ outcome: "booked" });
-    const r2 = await send(header);
-    expect(await r2.json()).toMatchObject({ outcome: "already_processed" });
-    const [{ n }] = await sql`select count(*)::int as n from journal_entries j join donations d on d.id = j.source_id
-      where d.checkout_id = ${g.checkoutId}`;
-    expect(n).toBe(2); // the gift and its fee
-    const tb = await trialBalance();
-    expect(tb.debits).toBe(tb.credits);
+describe("POST /api/stripe/webhook", () => {
+  it("rejects a bad signature, stores a signed event once and queues it for the job", async () => {
+    const queued: Queued[] = [];
+    const spy = vi.spyOn(inngest, "send").mockImplementation((async (p: Queued | Queued[]) => {
+      queued.push(...([] as Queued[]).concat(p));
+      return { ids: [] };
+    }) as never);
+    try {
+      const g = await createGift(input({ email: "hook@example.com", amountCents: 300 }));
+      const ev = event("payment_intent.succeeded", await piFor(g.checkoutId), 300);
+      const send = signed(ev);
+
+      expect((await send("t=1,v1=nope")).status).toBe(400);
+      expect(queued).toHaveLength(0);
+
+      const r1 = await send();
+      expect(r1.status).toBe(200);
+      expect(await r1.json()).toMatchObject({ queued: true, replay: false });
+      const r2 = await send();
+      expect(await r2.json()).toMatchObject({ queued: true, replay: true });
+
+      const stored = await sql`select processed_at from provider_events where stripe_event_id = ${ev.id}`;
+      expect(stored).toHaveLength(1);
+      expect(stored[0].processed_at).toBeNull(); // the job books it, not the webhook
+      // both sends carry the same event id, so Inngest runs the job once
+      expect(queued.map((q) => [q.name, q.id, q.data.stripeEventId])).toEqual([
+        [EVENTS.providerEventStored, `stripe:${ev.id}`, ev.id],
+        [EVENTS.providerEventStored, `stripe:${ev.id}`, ev.id],
+      ]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("answers 500 when the job can't be queued, so Stripe retries", async () => {
+    const spy = vi.spyOn(inngest, "send").mockRejectedValue(new Error("inngest unreachable"));
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const ev = event("payment_intent.processing", "pi_not_a_gift", 100);
+      expect((await signed(ev)()).status).toBe(500);
+      // still stored, so the retry-stuck job picks it up even if Stripe gives up
+      expect(await sql`select 1 from provider_events where stripe_event_id = ${ev.id}`).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+      err.mockRestore();
+    }
+  });
+});
+
+describe("jobs", () => {
+  // the "send event" steps are stood in for (no Inngest server in tests); the step spies still record what was sent
+  const steps = ["queue the receipt", "queue them again"].map((id) => ({ id, handler: () => ({ ids: [] }) }));
+  const run = (fn: ConstructorParameters<typeof InngestTestEngine>[0]["function"], name: string, data: Record<string, unknown>) =>
+    new InngestTestEngine({ function: fn }).execute({ events: [{ name, data }], steps });
+
+  it("process-provider-event books the gift and queues its receipt; send-receipt emails it once", async () => {
+    const g = await createGift(input({ email: "job@example.com", amountCents: 700 }));
+    const ev = event("payment_intent.succeeded", await piFor(g.checkoutId), 700);
+    await storeProviderEvent(ev);
+
+    const first = await run(processProviderEventJob, EVENTS.providerEventStored, { stripeEventId: ev.id });
+    if (first.error) throw first.error;
+    expect(first.result).toMatchObject({ outcome: "booked" });
+    const [d] = await sql`select id, status from donations where checkout_id = ${g.checkoutId}`;
+    expect(d.status).toBe("succeeded");
+    expect(first.ctx.step.sendEvent).toHaveBeenCalledWith("queue the receipt",
+      { name: EVENTS.giftBooked, id: `receipt:${d.id}`, data: { donationId: d.id } });
+
+    // the job running again (an Inngest retry) books nothing more. (The test engine memoizes a step's
+    // result across runs of the same function, so this is checked against the database, not the run result.)
+    await run(processProviderEventJob, EVENTS.providerEventStored, { stripeEventId: ev.id });
+    expect(await processProviderEvent(ev.id)).toEqual({ outcome: "already_processed" });
+    const [{ n }] = await sql`select count(*)::int as n from journal_entries j join donations dn on dn.id = j.source_id
+      where dn.checkout_id = ${g.checkoutId}`;
+    expect(n).toBe(2); // the gift and its fee, once
+
+    expect((await run(sendReceiptJob, EVENTS.giftBooked, { donationId: d.id })).result).toEqual({ outcome: "sent" });
+    await run(sendReceiptJob, EVENTS.giftBooked, { donationId: d.id }); // a retry: same memoization caveat as above
+    expect(await sendReceipt(d.id)).toBe("already_sent");
+    expect(await sql`select 1 from notification_log where subject_id = ${d.id} and kind = 'receipt'`).toHaveLength(1);
+  });
+
+  it("retry-stuck queues a stored event that was never processed", async () => {
+    const g = await createGift(input({ email: "stuck@example.com", amountCents: 900 }));
+    const ev = event("payment_intent.succeeded", await piFor(g.checkoutId), 900);
+    await storeProviderEvent(ev);
+    await owner`update provider_events set received_at = now() - interval '10 minutes' where stripe_event_id = ${ev.id}`;
+
+    const { result, ctx, error } = await new InngestTestEngine({ function: retryStuckJob }).execute({ steps });
+    if (error) throw error;
+    expect((result as { events: number }).events).toBeGreaterThanOrEqual(1);
+    const calls = (ctx.step.sendEvent as unknown as { mock: { calls: [string, Queued[]][] } }).mock.calls;
+    expect(calls[0][1]).toContainEqual(expect.objectContaining({ name: EVENTS.providerEventStored, data: { stripeEventId: ev.id } }));
   });
 });

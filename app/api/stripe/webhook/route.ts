@@ -2,12 +2,13 @@ import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { env } from "@/lib/env";
 import { stripe } from "@/lib/stripe";
-import { processProviderEvent, storeProviderEvent } from "@/lib/give/process-event";
-import { sendReceipt } from "@/lib/give/send-receipt";
+import { storeProviderEvent } from "@/lib/give/process-event";
+import { EVENTS, inngest } from "@/lib/inngest/client";
 
 // Stripe webhooks (platform and Connect). Every event is stored first (unique stripe_event_id), then
-// processed. A replayed event is stored once and books nothing new. Non-2xx makes Stripe retry.
-// TODO: hand processing and the receipt to Inngest jobs (process-provider-event, send-receipt).
+// handed to the process-provider-event job, which books it and queues the receipt. A replayed event
+// is stored once and books nothing new. Non-2xx makes Stripe retry; the retry-stuck job also picks
+// up any stored event that never got processed.
 export async function POST(req: Request) {
   const signature = req.headers.get("stripe-signature");
   const raw = await req.text();
@@ -24,16 +25,13 @@ export async function POST(req: Request) {
   }
   if (!event) return NextResponse.json({ error: "bad signature" }, { status: 400 });
 
-  await storeProviderEvent(event);
   try {
-    const result = await processProviderEvent(event.id);
-    if (result.outcome === "booked" && result.sendReceipt) {
-      // the gift is booked either way; a failed email is retried by resending from the donation
-      sendReceipt(result.donationId).catch((e) => console.error("receipt email failed", e));
-    }
-    return NextResponse.json({ received: true, outcome: result.outcome });
+    const { stored } = await storeProviderEvent(event);
+    // the event id makes Inngest drop a duplicate send for 24 hours; the job is idempotent beyond that
+    await inngest.send({ name: EVENTS.providerEventStored, id: `stripe:${event.id}`, data: { stripeEventId: event.id } });
+    return NextResponse.json({ received: true, queued: true, replay: !stored });
   } catch (e) {
-    console.error(`processing ${event.id} failed`, e);
-    return NextResponse.json({ error: "processing failed; will retry" }, { status: 500 });
+    console.error(`queueing ${event.id} failed`, e);
+    return NextResponse.json({ error: "not queued; will retry" }, { status: 500 });
   }
 }

@@ -27,6 +27,7 @@ export default defineConfig({
       DEV_CLOCK: "2027-01-15T10:00:00-06:00",
       GIVING_OPENS_AT: "2027-01-01T00:00:00-06:00",
       RESEND_API_KEY: "",
+      INNGEST_DEV: "1",
     },
   },
 });
