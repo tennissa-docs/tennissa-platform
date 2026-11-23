@@ -63,13 +63,17 @@ export function postGiftSucceeded(tx: Tx, g: GiftForPosting, eventId: string, oc
   });
 }
 
-/** Its Stripe fee, from the balance transaction (never computed): Dr fees, Cr Stripe balance. Key `<event_id>:fee`. */
-export function postGiftFee(tx: Tx, g: GiftForPosting, feeCents: bigint, eventId: string, occurredAt: Date): Promise<Posted | null> {
+/**
+ * Its Stripe fee, from the balance transaction (never computed): Dr fees, Cr Stripe balance.
+ * Key `fee:<balance_transaction_id>`: Stripe attaches the fee after the payment succeeds, so it can
+ * arrive with either of two events; keying on the balance transaction books it once whichever comes first.
+ */
+export function postGiftFee(tx: Tx, g: GiftForPosting, feeCents: bigint, balanceTransactionId: string, occurredAt: Date): Promise<Posted | null> {
   if (feeCents <= 0n) return Promise.resolve(null);
   const a = giftAccounts(g.qualified25f, g.state);
   return postEntry(tx, {
     orgId: g.orgId, occurredAt, sourceType: "donation_fee", sourceId: g.id,
-    memo: `Processing fee on ${g.confirmationNo}`, idempotencyKey: `${eventId}:fee`,
+    memo: `Processing fee on ${g.confirmationNo}`, idempotencyKey: `fee:${balanceTransactionId}`,
     lines: [{ account: "expense:fees:processing", debit: feeCents }, { account: a.stripe, credit: feeCents }],
   });
 }

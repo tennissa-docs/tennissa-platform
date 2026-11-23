@@ -79,7 +79,7 @@ Rules the **data layer** enforces (need tests in `/replica-test`):
 | event | debit | credit | key |
 | --- | --- | --- | --- |
 | gift succeeds (Stripe) | asset:stripe:25f:ST (gross) | income:contributions:25f:ST | `<event_id>:gift` |
-| its Stripe fee | expense:fees:processing | asset:stripe:25f:ST | `<event_id>:fee` (amount from the balance transaction, never computed) |
+| its Stripe fee | expense:fees:processing | asset:stripe:25f:ST | `fee:<balance_transaction_id>` (amount from the balance transaction, never computed; it can arrive with `payment_intent.succeeded` or a later `charge.updated`) |
 | offline check/wire | asset:clearing:deposits | income:contributions:… | `offline:<donation_id>` |
 | Stripe payout to bank | asset:bank:25f:ST | asset:stripe:25f:ST | `<payout_event_id>` |
 | refund, ACH return, lost dispute | income:contribution_refunds:ST (+ dispute fee to expense:fees) | asset:stripe:25f:ST | `refund:<donation_refund_id>`; source_type `donation_refund`, linked to the original gift |

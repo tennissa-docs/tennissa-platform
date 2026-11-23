@@ -31,7 +31,16 @@ One line per screen: ID, date, done or partial, what is missing, what was harder
 6. **Cap counting:** unconfirmed (pending) gifts count against the cap for one hour; refunded gifts still count (open question for the CPA). Existing donors are matched by email; their stored name/address isn't changed by a later gift.
 7. `.github/` (CI, ZAP, Dependabot) is listed in CLAUDE.md but isn't in the repo.
 
+## Real services, part 1: Stripe test mode (2026-11-23)
+
+- **Card verified end to end against Stripe test mode**: two gifts ($250, $500) → `payment_intent.succeeded` → booked R-2027-0001/0002 → fees $7.55 and $14.80 read from Stripe's balance transactions → trial balance $0.
+- **Harder than expected: the fee arrives after the payment.** Stripe attaches the balance transaction to the charge a few seconds after `payment_intent.succeeded`, so the old code (which refused to book without the fee and returned 500) would never have booked a real gift locally (`stripe listen` doesn't retry). Now the gift is booked on `payment_intent.succeeded` and the fee on whichever event first sees it (`charge.updated` usually). The fee's idempotency key changed from `<event_id>:fee` to `fee:<balance_transaction_id>`, so it books once whichever event carries it. New money test covers it (12 tests).
+- **Stripe Link turned off in the Payment Element** (`wallets.link: "never"`): it added its own "Bank" and "Klarna" options to a card-only PaymentIntent.
+- Local webhooks: `stripe listen --events payment_intent.processing,payment_intent.succeeded,payment_intent.payment_failed,charge.updated --forward-to localhost:3000/api/stripe/webhook` (Stripe CLI 1.55 requires `--events`). The production webhook endpoint needs the same four events.
+- Dev-clock quirk: with `DEV_CLOCK` set, `tax_year` follows the shifted clock (2027) but `received_on` follows Stripe's real event time (2026-11-23). Only affects testing before 2027.
+
 ### Not verified yet
 
-- A real Stripe test-mode charge (card and ACH) end to end: needs test keys in `.env.local` and `stripe listen --forward-to localhost:3000/api/stripe/webhook`.
+- A real Stripe test-mode **ACH** gift (card is verified, see above).
+- Receipt email through Resend: `tennissa.org` isn't verified in Resend yet, so sending fails (the gift is booked regardless and `emailed_at` stays empty for a resend).
 - 390px layouts were not screenshotted (the browser window wouldn't shrink below its minimum); the layouts are responsive by construction (mobile cards on S01, mobile menu, stacked tiles).

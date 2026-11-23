@@ -315,7 +315,12 @@ function PayStep({ intent, amountLabel, name, email, onBack }: {
 
   return (
     <form onSubmit={pay} className="flex flex-col gap-6">
-      <PaymentElement options={{ defaultValues: { billingDetails: { name, email } }, fields: { billingDetails: { name: "never", email: "never" } } }} />
+      {/* Link is off: it offers its own bank and pay-later options, but a gift is paid only by the method the donor chose */}
+      <PaymentElement options={{
+        defaultValues: { billingDetails: { name, email } },
+        fields: { billingDetails: { name: "never", email: "never" } },
+        wallets: { link: "never" },
+      }} />
       {error && <Banner tone="danger" role="alert">{error}</Banner>}
       <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
         <Button type="button" variant="ghost" icon={<ArrowLeft aria-hidden className="size-4" />} onClick={onBack} disabled={busy}>Back</Button>

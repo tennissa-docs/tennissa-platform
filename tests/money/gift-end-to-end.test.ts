@@ -20,8 +20,21 @@ const fake: StripeGateway = {
     return { id, clientSecret: `${id}_secret_x` };
   },
   async retrievePaymentIntent(id) { return { id, status: "processing" }; },
-  async chargeFacts(id) { return { chargeId: "ch_" + id.slice(3), feeCents: FEE, balanceTransactionId: "txn_" + id.slice(3) }; },
+  async chargeFacts(id) {
+    // Real Stripe attaches the balance transaction a moment after the payment succeeds.
+    if (!feeReady) return null;
+    return { chargeId: "ch_" + id.slice(3), feeCents: FEE, balanceTransactionId: "txn_" + id.slice(3) };
+  },
 };
+let feeReady = true;
+
+function chargeUpdated(piId: string, withFee: boolean, id = "evt_" + randomUUID().replace(/-/g, "")): Stripe.Event {
+  return {
+    id, type: "charge.updated", object: "event", api_version: "2025-01-01", created: Math.floor(Date.parse("2027-01-15T16:05:03Z") / 1000),
+    livemode: false, pending_webhooks: 1, request: null,
+    data: { object: { id: "ch_" + piId.slice(3), object: "charge", payment_intent: piId, balance_transaction: withFee ? "txn_" + piId.slice(3) : null } },
+  } as unknown as Stripe.Event;
+}
 
 function input(over: Partial<GiveInput> = {}): GiveInput {
   return {
@@ -90,7 +103,13 @@ describe("one dollar, end to end", () => {
     expect(d.received_on).toBe("2027-01-15");
 
     const entries = await sql`select idempotency_key from journal_entries order by created_at`;
-    expect(entries.map((e) => e.idempotency_key)).toEqual([`${ev.id}:gift`, `${ev.id}:fee`]);
+    expect(entries.map((e) => e.idempotency_key)).toEqual([`${ev.id}:gift`, `fee:txn_${pi.slice(3)}`]);
+
+    // the charge.updated that follows finds the fee already booked
+    const later = chargeUpdated(pi, true);
+    await storeProviderEvent(later);
+    expect((await processProviderEvent(later.id)).outcome).toBe("no_change");
+    expect(await sql`select 1 from journal_entries`).toHaveLength(2);
 
     const tb = await trialBalance();
     expect(tb.debits).toBe(tb.credits);
@@ -109,6 +128,48 @@ describe("one dollar, end to end", () => {
     const logs = await sql`select kind, recipient_email from notification_log where subject_id = ${d.id}`;
     expect(logs).toHaveLength(1);
     expect(logs[0]).toMatchObject({ kind: "receipt", recipient_email: "amina@example.com" });
+  });
+
+  it("books the gift before Stripe attaches the fee, then books the fee once from charge.updated", async () => {
+    const gift = await createGift(input({ email: "latefee@example.com", amountCents: 500 }));
+    const pi = await piFor(gift.checkoutId);
+    const before = await sql`select count(*)::int as n from journal_entries`;
+
+    feeReady = false;
+    try {
+      const ev = event("payment_intent.succeeded", pi, 500);
+      await storeProviderEvent(ev);
+      expect((await processProviderEvent(ev.id)).outcome).toBe("booked");
+      const [d] = await sql`select status, confirmation_no, fee_cents from donations where checkout_id = ${gift.checkoutId}`;
+      expect(d.status).toBe("succeeded");
+      expect(d.confirmation_no).toMatch(/^R-2027-/);
+      expect(BigInt(d.fee_cents)).toBe(0n);
+
+      // a charge.updated without the fee yet is ignored
+      const early = chargeUpdated(pi, false);
+      await storeProviderEvent(early);
+      expect((await processProviderEvent(early.id)).outcome).toBe("ignored");
+    } finally {
+      feeReady = true;
+    }
+
+    const withFee = chargeUpdated(pi, true);
+    await storeProviderEvent(withFee);
+    expect((await processProviderEvent(withFee.id))).toMatchObject({ outcome: "fee" });
+    // a second charge.updated (Stripe sends several) books nothing more
+    const again = chargeUpdated(pi, true);
+    await storeProviderEvent(again);
+    expect((await processProviderEvent(again.id)).outcome).toBe("no_change");
+
+    const [d] = await sql`select id, fee_cents, stripe_charge_id from donations where checkout_id = ${gift.checkoutId}`;
+    expect(BigInt(d.fee_cents)).toBe(FEE);
+    expect(d.stripe_charge_id).toBe("ch_" + pi.slice(3));
+    const fees = await sql`select idempotency_key from journal_entries where source_type = 'donation_fee' and source_id = ${d.id}`;
+    expect(fees.map((f) => f.idempotency_key)).toEqual([`fee:txn_${pi.slice(3)}`]);
+    const [after] = await sql`select count(*)::int as n from journal_entries`;
+    expect(after.n - before[0].n).toBe(2);
+    const tb = await trialBalance();
+    expect(tb.debits).toBe(tb.credits);
   });
 
   it("is idempotent per checkout: a double-clicked Give creates one donation and one PaymentIntent", async () => {
@@ -141,12 +202,14 @@ describe("one dollar, end to end", () => {
   });
 
   it("numbers receipts sequentially within the year", async () => {
+    const [{ last }] = await sql`select max(confirmation_no) as last from donations where confirmation_no like 'R-2027-%'`;
+    const expected = `R-2027-${String(Number(last.slice(7)) + 1).padStart(4, "0")}`;
     const g = await createGift(input({ email: "second@example.com", amountCents: 5000 }));
     const ev = event("payment_intent.succeeded", await piFor(g.checkoutId), 5000);
     await storeProviderEvent(ev);
     await processProviderEvent(ev.id);
     const [d] = await sql`select confirmation_no from donations where checkout_id = ${g.checkoutId}`;
-    expect(d.confirmation_no).toBe("R-2027-0002");
+    expect(d.confirmation_no).toBe(expected);
   });
 
   it("a regular gift (credit box unticked) goes to the general account", async () => {
@@ -223,8 +286,9 @@ describe("POST /api/stripe/webhook", () => {
     expect(await r1.json()).toMatchObject({ outcome: "booked" });
     const r2 = await send(header);
     expect(await r2.json()).toMatchObject({ outcome: "already_processed" });
-    const [{ n }] = await sql`select count(*)::int as n from journal_entries where idempotency_key like ${ev.id + ":%"}`;
-    expect(n).toBe(2);
+    const [{ n }] = await sql`select count(*)::int as n from journal_entries j join donations d on d.id = j.source_id
+      where d.checkout_id = ${g.checkoutId}`;
+    expect(n).toBe(2); // the gift and its fee
     const tb = await trialBalance();
     expect(tb.debits).toBe(tb.credits);
   });
