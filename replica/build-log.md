@@ -39,8 +39,10 @@ One line per screen: ID, date, done or partial, what is missing, what was harder
 - Local webhooks: `stripe listen --events payment_intent.processing,payment_intent.succeeded,payment_intent.payment_failed,charge.updated --forward-to localhost:3000/api/stripe/webhook` (Stripe CLI 1.55 requires `--events`). The production webhook endpoint needs the same four events.
 - Dev-clock quirk: with `DEV_CLOCK` set, `tax_year` follows the shifted clock (2027) but `received_on` follows Stripe's real event time (2026-11-23). Only affects testing before 2027.
 
+- **ACH verified too**: $1,700 from Stripe's test bank (Financial Connections) → `payment_intent.processing` (thank-you page shows "on its way") → `payment_intent.succeeded` and `charge.updated` arriving in the same second → R-2027-0003 booked once, fee $5.00 booked once, trial balance $0. The bank-connection window is Stripe's Link-branded Financial Connections; donors can finish without saving to Link.
+- Must-haves now yes: "Give now" and "Bank (ACH) and card payment" (11 yes, 7 partial of 86).
+
 ### Not verified yet
 
-- A real Stripe test-mode **ACH** gift (card is verified, see above).
 - Receipt email through Resend: `tennissa.org` isn't verified in Resend yet, so sending fails (the gift is booked regardless and `emailed_at` stays empty for a resend).
 - 390px layouts were not screenshotted (the browser window wouldn't shrink below its minimum); the layouts are responsive by construction (mobile cards on S01, mobile menu, stacked tiles).

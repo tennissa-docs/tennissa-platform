@@ -5,9 +5,9 @@ Public giving page for the fund,money,must,yes,yes,S05; slice 2026-11-20
 Give modal: filing status then amount then details,money,must,yes,partial,S06; a page not a modal; couples and school designation not yet
 Married couple: two gifts and two receipts in one checkout,money,must,yes,no,f48 f49
 $1700 per person per year cap,money,must,yes,yes,data layer; donor row locked; tested (test:money)
-Give now: one-time gift charged at checkout (no pledges; no monthly),money,must,yes,partial,S06; decided 2026-11-12; built + tested with a Stripe stand-in; not yet run against Stripe test mode
+Give now: one-time gift charged at checkout (no pledges; no monthly),money,must,yes,yes,S06; decided 2026-11-12; verified against Stripe test mode 2026-11-23 (card + ACH)
 Designation: greatest need or a partner school,money,must,yes,no,S06
-Bank (ACH) and card payment,money,must,yes,partial,via your own processor; Payment Element per method; not yet run against Stripe test mode
+Bank (ACH) and card payment,money,must,yes,yes,via your own processor; Payment Element per method (Link off); card + ACH verified in Stripe test mode 2026-11-23
 Tax-credit attestations recorded with each gift (US person; own money; count toward credit),money,must,yes,yes,S06; locked once set; slice
 Thank-you page with confirmation number once the gift clears,money,must,yes,yes,S07; S07; signed link; processing/failed states
 Collect pledges on their date (scheduled job),money,must,yes,skip,no pledges: donors pay when they give (decided 2026-11-12)
